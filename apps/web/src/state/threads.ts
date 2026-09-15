@@ -89,6 +89,17 @@ export function loadCompleteThread(
         finish({ ok: true, thread });
         return;
       }
+      if (state.status !== "live") {
+        finish({
+          ok: false,
+          error: new Error(
+            requestPending
+              ? "The environment disconnected while loading the full thread history."
+              : "Reconnect the environment to load the full thread history.",
+          ),
+        });
+        return;
+      }
       const page = Option.getOrNull(state.page);
       if (page?.loadingOlder) {
         requestPending = false;

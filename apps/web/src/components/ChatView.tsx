@@ -9009,12 +9009,14 @@ export default function ChatView(props: ChatViewProps) {
   const onStartWholeThreadContinuation = useCallback(
     async (intent: ThreadContinuationIntent, modelSelection: ModelSelection) => {
       if (!activeThread || continuationHistoryLoading || continuationStarting) return;
+      const sourceThreadKey = routeThreadKey;
       setContinuationHistoryLoading(true);
       try {
         const completeThread = await loadCompleteThread(
           activeThread.environmentId,
           activeThread.id,
         );
+        if (currentRouteThreadKeyRef.current !== sourceThreadKey) return;
         await startContinuation({
           intent,
           modelSelection,
@@ -9032,6 +9034,7 @@ export default function ChatView(props: ChatViewProps) {
           }),
         });
       } catch (error) {
+        if (currentRouteThreadKeyRef.current !== sourceThreadKey) return;
         toastManager.add(
           stackedThreadToast({
             type: "error",
@@ -9043,7 +9046,13 @@ export default function ChatView(props: ChatViewProps) {
         setContinuationHistoryLoading(false);
       }
     },
-    [activeThread, continuationHistoryLoading, continuationStarting, startContinuation],
+    [
+      activeThread,
+      continuationHistoryLoading,
+      continuationStarting,
+      routeThreadKey,
+      startContinuation,
+    ],
   );
 
   const getModelDisabledReason = useCallback(

@@ -897,7 +897,7 @@ function ThreadRouteContent(
             : (selectedThreadWithDraftSettings?.runtimeMode ?? selectedThread.runtimeMode),
         interactionMode: "default",
         workspaceSelection: {
-          mode: selectedThread.worktreePath ? "worktree" : "local",
+          mode: "local",
           branch: selectedThread.branch,
           worktreePath: selectedThread.worktreePath,
         },
