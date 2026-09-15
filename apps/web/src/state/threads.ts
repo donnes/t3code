@@ -6,14 +6,17 @@ import {
   EMPTY_ENVIRONMENT_THREAD_STATE,
   type EnvironmentThreadState,
   createThreadEnvironmentAtoms,
+  requestOlderThreadTurns,
+  threadHasOlderTurns,
 } from "@t3tools/client-runtime/state/threads";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, OrchestrationThread, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
 import { environmentCatalog } from "../connection/catalog";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { environmentSnapshotAtom } from "./shell";
+import { appAtomRegistry } from "../rpc/atomRegistry";
 
 export const threadEnvironment = createThreadEnvironmentAtoms(
   connectionAtomRuntime,
@@ -45,4 +48,61 @@ export function useEnvironmentThread(
     AsyncResult.value(result),
     () => EMPTY_ENVIRONMENT_THREAD_STATE,
   ) as EnvironmentThreadState;
+}
+
+function threadStateFromResult(
+  result: AsyncResult.AsyncResult<EnvironmentThreadState, unknown>,
+): EnvironmentThreadState {
+  return Option.getOrElse(AsyncResult.value(result), () => EMPTY_ENVIRONMENT_THREAD_STATE);
+}
+
+/** Fetches every older page before resolving with the complete thread detail. */
+export function loadCompleteThread(
+  environmentId: EnvironmentId,
+  threadId: ThreadId,
+): Promise<OrchestrationThread> {
+  const stateAtom = environmentThreads.stateAtom(environmentId, threadId);
+  return new Promise((resolve, reject) => {
+    let unsubscribe: (() => void) | null = null;
+    let requestPending = false;
+    let settled = false;
+
+    const finish = (
+      result: { ok: true; thread: OrchestrationThread } | { ok: false; error: Error },
+    ) => {
+      if (settled) return;
+      settled = true;
+      unsubscribe?.();
+      if (result.ok) resolve(result.thread);
+      else reject(result.error);
+    };
+
+    const advance = (result: AsyncResult.AsyncResult<EnvironmentThreadState, unknown>) => {
+      const state = threadStateFromResult(result);
+      const error = Option.getOrNull(state.error);
+      if (error !== null) {
+        finish({ ok: false, error: new Error(error) });
+        return;
+      }
+      const thread = Option.getOrNull(state.data);
+      if (thread !== null && !threadHasOlderTurns(state)) {
+        finish({ ok: true, thread });
+        return;
+      }
+      const page = Option.getOrNull(state.page);
+      if (page?.loadingOlder) {
+        requestPending = false;
+        return;
+      }
+      if (thread === null || requestPending) return;
+
+      requestPending = true;
+      if (!requestOlderThreadTurns(environmentId, threadId)) {
+        finish({ ok: false, error: new Error("Could not load the full thread history.") });
+      }
+    };
+
+    unsubscribe = appAtomRegistry.subscribe(stateAtom, advance);
+    advance(appAtomRegistry.get(stateAtom));
+  });
 }
