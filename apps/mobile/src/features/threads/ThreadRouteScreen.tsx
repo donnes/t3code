@@ -887,6 +887,10 @@ function ThreadRouteContent(
         environmentId: selectedThread.environmentId,
         projectId: selectedThread.projectId,
       });
+      const continuationWorktreePath = resolvePreferredThreadWorktreePath({
+        threadShellWorktreePath: selectedThread.worktreePath ?? null,
+        threadDetailWorktreePath: selectedThreadDetailWorktreePath,
+      });
       setComposerDraftText(draftId, prompt);
       updateComposerDraftSettings(draftId, {
         modelSelection:
@@ -899,7 +903,7 @@ function ThreadRouteContent(
         workspaceSelection: {
           mode: "local",
           branch: selectedThread.branch,
-          worktreePath: selectedThread.worktreePath,
+          worktreePath: continuationWorktreePath,
         },
       });
       navigation.navigate("NewTaskSheet", {
@@ -916,6 +920,7 @@ function ThreadRouteContent(
       navigation,
       selectedThread,
       selectedThreadDetail,
+      selectedThreadDetailWorktreePath,
       selectedThreadProject,
       selectedThreadWithDraftSettings,
     ],

@@ -60,18 +60,21 @@ function threadStateFromResult(
 export function loadCompleteThread(
   environmentId: EnvironmentId,
   threadId: ThreadId,
+  timeoutMs = 30_000,
 ): Promise<OrchestrationThread> {
   const stateAtom = environmentThreads.stateAtom(environmentId, threadId);
   return new Promise((resolve, reject) => {
     let unsubscribe: (() => void) | null = null;
     let requestPending = false;
     let settled = false;
+    let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
 
     const finish = (
       result: { ok: true; thread: OrchestrationThread } | { ok: false; error: Error },
     ) => {
       if (settled) return;
       settled = true;
+      if (timeoutId !== null) globalThis.clearTimeout(timeoutId);
       unsubscribe?.();
       if (result.ok) resolve(result.thread);
       else reject(result.error);
@@ -113,6 +116,10 @@ export function loadCompleteThread(
       }
     };
 
+    timeoutId = globalThis.setTimeout(
+      () => finish({ ok: false, error: new Error("Could not load the full thread history.") }),
+      timeoutMs,
+    );
     unsubscribe = appAtomRegistry.subscribe(stateAtom, advance);
     advance(appAtomRegistry.get(stateAtom));
   });

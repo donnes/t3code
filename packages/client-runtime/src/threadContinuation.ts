@@ -2,7 +2,9 @@ export type ThreadContinuationIntent = "handoff" | "second-opinion";
 
 const MAX_REQUEST_CHARS = 12_000;
 const MAX_RESPONSE_CHARS = 24_000;
+const MAX_TRANSCRIPT_CHARS = 96_000;
 const MAX_FILES = 100;
+const OMITTED_TRANSCRIPT_NOTICE = "[Earlier messages omitted to fit continuation prompt.]";
 
 export interface ThreadContinuationTranscriptMessage {
   readonly role: "user" | "assistant" | "system";
@@ -13,6 +15,29 @@ function bounded(text: string, maxChars: number): string {
   const trimmed = text.trim();
   if (trimmed.length <= maxChars) return trimmed;
   return `${trimmed.slice(0, maxChars).trimEnd()}\n\n[truncated]`;
+}
+
+function boundedTranscript(messages: ReadonlyArray<ThreadContinuationTranscriptMessage>): string {
+  const entries = messages.map((message) => {
+    const maxChars = message.role === "assistant" ? MAX_RESPONSE_CHARS : MAX_REQUEST_CHARS;
+    const text = bounded(message.text, maxChars) || "(empty message)";
+    const label =
+      message.role === "assistant" ? "Assistant" : message.role === "user" ? "User" : "System";
+    return `${label}:\n${text}`;
+  });
+  const complete = entries.join("\n\n");
+  if (complete.length <= MAX_TRANSCRIPT_CHARS) return complete;
+
+  const retained: Array<string> = [];
+  let retainedLength = OMITTED_TRANSCRIPT_NOTICE.length;
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index]!;
+    const nextLength = retainedLength + 2 + entry.length;
+    if (nextLength > MAX_TRANSCRIPT_CHARS) break;
+    retained.unshift(entry);
+    retainedLength = nextLength;
+  }
+  return [OMITTED_TRANSCRIPT_NOTICE, ...retained].join("\n\n");
 }
 
 export function buildThreadContinuationPrompt(input: {
@@ -54,13 +79,7 @@ export function buildWholeThreadContinuationPrompt(input: {
     input.intent === "handoff"
       ? "Continue this work from the current workspace state. Review the full source thread transcript, verify what is already complete, then carry the task forward."
       : "Give a second opinion on the full source thread and current workspace state. Do not modify files. Call out correctness issues, missed requirements, risky assumptions, and the strongest next step.";
-  const transcript = input.messages.flatMap((message) => {
-    const maxChars = message.role === "assistant" ? MAX_RESPONSE_CHARS : MAX_REQUEST_CHARS;
-    const text = bounded(message.text, maxChars) || "(empty message)";
-    const label =
-      message.role === "assistant" ? "Assistant" : message.role === "user" ? "User" : "System";
-    return [`${label}:`, text, ""];
-  });
+  const transcript = boundedTranscript(input.messages);
   const files = [...new Set(input.changedFiles ?? [])].slice(0, MAX_FILES);
 
   return [
@@ -69,7 +88,8 @@ export function buildWholeThreadContinuationPrompt(input: {
     `Source thread: ${bounded(input.sourceThreadTitle, 240)}`,
     "",
     "Full conversation transcript:",
-    ...(transcript.length > 0 ? transcript : ["(no messages)", ""]),
+    transcript || "(no messages)",
+    "",
     ...(files.length > 0
       ? ["Files changed across the thread:", ...files.map((file) => `- ${file}`)]
       : []),

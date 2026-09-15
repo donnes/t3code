@@ -55,4 +55,20 @@ describe("thread continuation", () => {
     expect(prompt.match(/src\/auth\.ts/g)).toHaveLength(1);
     expect(prompt).toContain("Do not modify files");
   });
+
+  it("bounds the aggregate transcript while preserving the latest messages", () => {
+    const prompt = buildWholeThreadContinuationPrompt({
+      intent: "handoff",
+      sourceThreadTitle: "Large task",
+      messages: Array.from({ length: 10 }, (_, index) => ({
+        role: "assistant" as const,
+        text: `message-${index}-${"a".repeat(24_000)}`,
+      })),
+    });
+
+    expect(prompt).toContain("[Earlier messages omitted to fit continuation prompt.]");
+    expect(prompt).not.toContain("message-0-");
+    expect(prompt).toContain("message-9-");
+    expect(prompt.length).toBeLessThan(97_000);
+  });
 });
