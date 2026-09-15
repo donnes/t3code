@@ -8847,7 +8847,10 @@ export default function ChatView(props: ChatViewProps) {
   ]);
 
   const [continuationStarting, setContinuationStarting] = useState(false);
-  const [continuationHistoryLoading, setContinuationHistoryLoading] = useState(false);
+  const [continuationHistoryLoadingKeys, setContinuationHistoryLoadingKeys] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const continuationHistoryLoading = continuationHistoryLoadingKeys.has(routeThreadKey);
   const startContinuation = useCallback(
     async (input: {
       intent: ThreadContinuationIntent;
@@ -9010,7 +9013,10 @@ export default function ChatView(props: ChatViewProps) {
     async (intent: ThreadContinuationIntent, modelSelection: ModelSelection) => {
       if (!activeThread || continuationHistoryLoading || continuationStarting) return;
       const sourceThreadKey = routeThreadKey;
-      setContinuationHistoryLoading(true);
+      setContinuationHistoryLoadingKeys((current) => {
+        if (current.has(sourceThreadKey)) return current;
+        return new Set(current).add(sourceThreadKey);
+      });
       try {
         const completeThread = await loadCompleteThread(
           activeThread.environmentId,
@@ -9043,7 +9049,12 @@ export default function ChatView(props: ChatViewProps) {
           }),
         );
       } finally {
-        setContinuationHistoryLoading(false);
+        setContinuationHistoryLoadingKeys((current) => {
+          if (!current.has(sourceThreadKey)) return current;
+          const next = new Set(current);
+          next.delete(sourceThreadKey);
+          return next;
+        });
       }
     },
     [
