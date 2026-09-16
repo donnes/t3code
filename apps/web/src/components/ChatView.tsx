@@ -8848,7 +8848,10 @@ export default function ChatView(props: ChatViewProps) {
     composerRef,
   ]);
 
-  const [continuationStarting, setContinuationStarting] = useState(false);
+  const [continuationStartingKeys, setContinuationStartingKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const continuationStarting = continuationStartingKeys.has(routeThreadKey);
   const [continuationHistoryLoadingKeys, setContinuationHistoryLoadingKeys] = useState<
     ReadonlySet<string>
   >(() => new Set());
@@ -8870,7 +8873,11 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
       const { intent, modelSelection, prompt, title } = input;
-      setContinuationStarting(true);
+      const sourceThreadKey = routeThreadKey;
+      setContinuationStartingKeys((current) => {
+        if (current.has(sourceThreadKey)) return current;
+        return new Set(current).add(sourceThreadKey);
+      });
       try {
         if (intent === "handoff") {
           const opened = await handleNewThread(
@@ -8949,7 +8956,12 @@ export default function ChatView(props: ChatViewProps) {
           }),
         );
       } finally {
-        setContinuationStarting(false);
+        setContinuationStartingKeys((current) => {
+          if (!current.has(sourceThreadKey)) return current;
+          const next = new Set(current);
+          next.delete(sourceThreadKey);
+          return next;
+        });
       }
     },
     [
@@ -8961,6 +8973,7 @@ export default function ChatView(props: ChatViewProps) {
       handleNewThread,
       isServerThread,
       navigate,
+      routeThreadKey,
       setComposerDraftInteractionMode,
       setComposerDraftModelSelection,
       setComposerDraftPrompt,
@@ -9067,6 +9080,48 @@ export default function ChatView(props: ChatViewProps) {
       startContinuation,
     ],
   );
+
+  const threadContinuationPicker = useMemo(() => {
+    if (!activeThread || !isServerThread || providerInstanceEntries.length === 0) return undefined;
+    return {
+      activeModelSelection: activeThread.modelSelection,
+      instanceEntries: providerInstanceEntries,
+      modelOptionsByInstance: continuationModelOptionsByInstance,
+      disabled: activeEnvironmentUnavailable || continuationStarting || continuationHistoryLoading,
+      onSelect: onStartWholeThreadContinuation,
+    };
+  }, [
+    activeEnvironmentUnavailable,
+    activeThread?.modelSelection,
+    continuationHistoryLoading,
+    continuationModelOptionsByInstance,
+    continuationStarting,
+    isServerThread,
+    onStartWholeThreadContinuation,
+    providerInstanceEntries,
+  ]);
+
+  const messageContinuationPicker = useMemo(() => {
+    if (!activeThread || paintOnlyDisplayedTimeline || providerInstanceEntries.length === 0) {
+      return undefined;
+    }
+    return {
+      activeModelSelection: activeThread.modelSelection,
+      instanceEntries: providerInstanceEntries,
+      modelOptionsByInstance: continuationModelOptionsByInstance,
+      disabled: activeEnvironmentUnavailable || continuationStarting || continuationHistoryLoading,
+      onSelect: onStartTurnContinuation,
+    };
+  }, [
+    activeEnvironmentUnavailable,
+    activeThread?.modelSelection,
+    continuationHistoryLoading,
+    continuationModelOptionsByInstance,
+    continuationStarting,
+    onStartTurnContinuation,
+    paintOnlyDisplayedTimeline,
+    providerInstanceEntries,
+  ]);
 
   const getModelDisabledReason = useCallback(
     (instanceId: ProviderInstanceId, model: string): string | null => {
@@ -9642,20 +9697,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddProjectScript={saveProjectScript}
             onUpdateProjectScript={updateProjectScript}
             onDeleteProjectScript={deleteProjectScript}
-            {...(isServerThread && providerInstanceEntries.length > 0
-              ? {
-                  threadContinuationPicker: {
-                    activeModelSelection: activeThread.modelSelection,
-                    instanceEntries: providerInstanceEntries,
-                    modelOptionsByInstance: continuationModelOptionsByInstance,
-                    disabled:
-                      activeEnvironmentUnavailable ||
-                      continuationStarting ||
-                      continuationHistoryLoading,
-                    onSelect: onStartWholeThreadContinuation,
-                  },
-                }
-              : {})}
+            {...(threadContinuationPicker ? { threadContinuationPicker } : {})}
           />
         </WorkspacePageHeader>
 
@@ -9737,20 +9779,9 @@ export default function ChatView(props: ChatViewProps) {
                 routeThreadKey={displayedTimelineKey}
                 displayThreadKey={displayedTimelineKey}
                 onOpenTurnDiff={paintOnlyDisplayedTimeline ? noopHeldTurnDiff : onOpenTurnDiff}
-                {...(paintOnlyDisplayedTimeline || providerInstanceEntries.length === 0
-                  ? {}
-                  : {
-                      continuationPicker: {
-                        activeModelSelection: activeThread.modelSelection,
-                        instanceEntries: providerInstanceEntries,
-                        modelOptionsByInstance: continuationModelOptionsByInstance,
-                        disabled:
-                          activeEnvironmentUnavailable ||
-                          continuationStarting ||
-                          continuationHistoryLoading,
-                        onSelect: onStartTurnContinuation,
-                      },
-                    })}
+                {...(messageContinuationPicker
+                  ? { continuationPicker: messageContinuationPicker }
+                  : {})}
                 supportsConversationRollback={
                   !paintOnlyDisplayedTimeline && supportsConversationRollback
                 }
